@@ -54,6 +54,8 @@ class Canvas(QWidget):
                 painter.setPen(QPen(colour, 1, QtCore.Qt.SolidLine))
                 painter.setBrush(colour)
                 painter.drawRect(rect)
+                painter.setPen(QPen(Qt.black, 1, QtCore.Qt.SolidLine))
+                painter.drawText(rect.bottomLeft() + QPoint(-17, 20), f"({rect.center().x()}, {rect.center().y()})")
             else:
                 point = rect
         if point is not None:
@@ -78,6 +80,8 @@ class Canvas(QWidget):
             painter.setPen(QPen(colour, 1, QtCore.Qt.SolidLine))
             painter.setBrush(colour)
             painter.drawEllipse(point)
+            painter.setPen(QPen(Qt.black, 1, QtCore.Qt.SolidLine))
+            painter.drawText(point.bottomLeft() + QPoint(-17, 20), f"({point.center().x()}, {point.center().y()})")
 
     def mousePressEvent(self, event):
         for i in range(len(self.rects)):
@@ -158,19 +162,19 @@ class MainWindow(QMainWindow):
         self._textFont = QFont()
         self._sliderValueLabel = QLabel("Error Value: 0")
         self._sliderValueLabel.setMaximumHeight(40)
-        self._textFont.setPointSize(14)
+        self._textFont.setPointSize(12)
         self._sliderValueLabel.setFont(self._textFont)
         self._sliderLabel = QLabel("Error in Range")
         self._sliderLabel.setMaximumHeight(40)
-        self._textFont.setPointSize(12)
+        self._textFont.setPointSize(10)
         self._sliderLabel.setFont(self._textFont)
 
         self._canvasWidthLabel = QLabel()
         self._canvasWidthLabel.setFont(self._textFont)
-        self._canvasWidthLabel.setMaximumHeight(30)
+        self._canvasWidthLabel.setMaximumHeight(20)
         self._canvasHeightLabel = QLabel()
         self._canvasHeightLabel.setFont(self._textFont)
-        self._canvasHeightLabel.setMaximumHeight(30)
+        self._canvasHeightLabel.setMaximumHeight(20)
 
         self.addToolBar(Qt.LeftToolBarArea, self._toolBar)
         # Construct Central Widget
