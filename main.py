@@ -3,7 +3,7 @@ import enum
 import sys
 
 # Import QApplication and the required widgets from PyQt5.QtWidgets
-from PyQt5 import QtWidgets, QtCore, QtGui
+from PyQt5 import QtWidgets, QtCore
 from PyQt5.QtCore import Qt, QRect, QSize, QPoint
 from PyQt5.QtGui import QIcon, QPainter, QPen, QPalette, QVector2D, QBrush, QColor, QFont
 from PyQt5.QtWidgets import QApplication, QAction, QSlider, QLabel
@@ -56,19 +56,28 @@ class Canvas(QWidget):
                 painter.drawRect(rect)
             else:
                 point = rect
-                colour = Qt.black
-                painter.setPen(QPen(colour, 1, QtCore.Qt.SolidLine))
-                painter.setBrush(colour)
-                painter.drawEllipse(rect)
         if point is not None:
             for a in anchors:
                 dist = QVector2D(point.center() - a.center()).length()
-                pen = QPen(QColor(255, 255, 0, 100), self.nodeUncertainity, QtCore.Qt.SolidLine)
+                pen = QPen(QColor(255, 255, 0, 50), self.nodeUncertainity, QtCore.Qt.SolidLine)
+                if self.nodeUncertainity == 0:
+                    pen = QPen(QColor(0, 0, 255, 50), 1, QtCore.Qt.SolidLine)
                 painter.setPen(pen)
                 painter.setBrush(QBrush())
-                rect = QRect(QPoint(a.x()+a.width()//2 - dist, a.y()+a.height()//2 - dist), QSize(2*dist, 2*dist))
+                rect = QRect(QPoint(a.x() + a.width() // 2 - dist, a.y() + a.height() // 2 - dist),
+                             QSize(2 * dist, 2 * dist))
                 painter.drawEllipse(rect)
 
+                painter.setPen(QPen(Qt.red, 1, QtCore.Qt.SolidLine))
+                painter.drawLine(a.center(), point.center())
+
+                painter.setPen(QPen(Qt.black, 1, QtCore.Qt.SolidLine))
+                painter.drawText((a.center() + point.center()) / 2, str(round(dist, 1)))
+
+            colour = Qt.black
+            painter.setPen(QPen(colour, 1, QtCore.Qt.SolidLine))
+            painter.setBrush(colour)
+            painter.drawEllipse(point)
 
     def mousePressEvent(self, event):
         for i in range(len(self.rects)):
@@ -196,7 +205,7 @@ class MainWindow(QMainWindow):
         print(val)
         self._canvas.nodeUncertainity = val
         self._canvas.update()
-        self._sliderValueLabel.setText(f"Error Value: {val}")
+        self._sliderValueLabel.setText(f"Error Value: {val * 2}")
 
     def paintEvent(self, event):
         super(MainWindow, self).paintEvent(event)
