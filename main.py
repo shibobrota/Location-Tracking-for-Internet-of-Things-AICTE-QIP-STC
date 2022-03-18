@@ -137,13 +137,14 @@ class Node(QRect):
     def __init__(self, point, size, type):
         super(Node, self).__init__(point, size)
         self.type = type
+        self.distError = 0.0
 
 
 class Canvas(QWidget):
     def __init__(self, callback):
         super(Canvas, self).__init__()
         self.drag_position = QtCore.QPoint()
-        self.rects = []
+        self.nodes = []
         self.idx = None
         self.nodeSize = QSize(20, 20)
         palette = self.palette()
@@ -155,6 +156,8 @@ class Canvas(QWidget):
         self.nodeMeanError = 0.
         self.nodeErrorStdDeviation = 0.
         self.onPosChange = callback
+        self.location = None
+        self.lastKnownUncertainity = 0.
 
     def paintEvent(self, event):
         super().paintEvent(event)
@@ -162,7 +165,7 @@ class Canvas(QWidget):
         painter.setRenderHint(QPainter.Antialiasing)
         point = None
         anchors = []
-        for rect in self.rects:
+        for rect in self.nodes:
             if rect.type == Type.Anchor:
                 anchors.append(rect)
                 colour = Qt.red
@@ -184,10 +187,8 @@ class Canvas(QWidget):
                 rect = QRect(QPoint(a.x() + a.width() // 2 - dist, a.y() + a.height() // 2 - dist),
                              QSize(2 * dist, 2 * dist))
                 painter.drawEllipse(rect)
-
                 painter.setPen(QPen(Qt.red, 1, QtCore.Qt.SolidLine))
                 painter.drawLine(a.center(), point.center())
-
                 painter.setPen(QPen(Qt.black, 1, QtCore.Qt.SolidLine))
                 painter.drawText((a.center() + point.center()) / 2, str(round(dist, 1)))
 
@@ -197,33 +198,47 @@ class Canvas(QWidget):
             painter.drawEllipse(point)
             painter.setPen(QPen(Qt.black, 1, QtCore.Qt.SolidLine))
             painter.drawText(point.bottomLeft() + QPoint(-17, 20), f"({point.center().x()}, {point.center().y()})")
-            self.onPosChange(anchors, point)
+
+            print(anchors, point)
+            if len(anchors) > 1:
+                ranges = [math.dist((point.center().x(), point.center().y()), (a.x(), a.y())) + a.distError for a in anchors]
+                x = [np.array([(a.x(), a.y()) for a in anchors]), np.array(ranges)]
+                loc_estimate = lmfit.minimize(cost_value, self.location, args=(x,))
+                node_loc_estimate = (round(loc_estimate.params['x'].value), round(loc_estimate.params['y'].value))
+                print(node_loc_estimate)
+            if self.lastKnownUncertainity != self.nodeMeanError + 2*self.nodeErrorStdDeviation:
+                self.lastKnownUncertainity = self.nodeMeanError + 2*self.nodeErrorStdDeviation
+                for a in anchors:
+                    a.distError = np.random.normal(self.nodeMeanError, self.nodeErrorStdDeviation)
+            self.onPosChange(node_loc_estimate, point)
 
     def mousePressEvent(self, event):
-        for i in range(len(self.rects)):
-            if 2 * QVector2D(event.pos() - self.rects[i].center()).length() < self.rects[i].width():
+        for i in range(len(self.nodes)):
+            if 2 * QVector2D(event.pos() - self.nodes[i].center()).length() < self.nodes[i].width():
                 if event.button() == Qt.LeftButton:
-                    self.drag_position = event.pos() - self.rects[i].topLeft()
+                    self.drag_position = event.pos() - self.nodes[i].topLeft()
                     self.idx = i
                 elif event.button() == Qt.RightButton:
-                    if self.rects[i].type == Type.Point:
+                    if self.nodes[i].type == Type.Point:
                         self.pointCount -= 1
-                    self.rects.pop(i)
+                    self.nodes.pop(i)
                 break
         if self.drag_position.isNull() and event.button() == Qt.LeftButton:
             if (self.selectedType == Type.Point and self.pointCount == 0) or self.selectedType == Type.Anchor:
                 if self.selectedType == Type.Point: self.pointCount += 1
-                self.rects.append(
+                self.nodes.append(
                     Node(event.pos() - QPoint(self.nodeSize.width() // 2, self.nodeSize.height() // 2), self.nodeSize,
                          self.selectedType))
-                self.drag_position = event.pos() - self.rects[-1].topLeft()
-                self.idx = len(self.rects) - 1
+                self.drag_position = event.pos() - self.nodes[-1].topLeft()
+                self.nodes[-1].distError = np.random.normal(self.nodeMeanError, self.nodeErrorStdDeviation)
+                self.idx = len(self.nodes) - 1
         super().mousePressEvent(event)
         self.update()
 
     def mouseMoveEvent(self, event):
         if not self.drag_position.isNull():
-            self.rects[self.idx].moveTopLeft(event.pos() - self.drag_position)
+            self.nodes[self.idx].moveTopLeft(event.pos() - self.drag_position)
+            self.nodes[self.idx].distError = np.random.normal(self.nodeMeanError, self.nodeErrorStdDeviation)
             self.update()
         super().mouseMoveEvent(event)
 
@@ -358,30 +373,23 @@ class MainWindow(QMainWindow):
     def setup(self):
         # Status Bar
         self.showCanvasSize()
-        self.location = lmfit.Parameters()
-        self.location.add('x', value=self._canvas.width() / 2, max=self._canvas.width(), min=0.0)
-        self.location.add('y', value=self._canvas.height() / 2, max=self._canvas.height(), min=0.0)
+        self._canvas.location = lmfit.Parameters()
+        self._canvas.location.add('x', value=self._canvas.width() / 2, max=self._canvas.width(), min=0.0)
+        self._canvas.location.add('y', value=self._canvas.height() / 2, max=self._canvas.height(), min=0.0)
 
     def resizeEvent(self, event):
         print(event.size())
         self.showCanvasSize()
-        self.location = lmfit.Parameters()
-        self.location.add('x', value=self._canvas.width() / 2, max=self._canvas.width(), min=0.0)
-        self.location.add('y', value=self._canvas.height() / 2, max=self._canvas.height(), min=0.0)
+        self._canvas.location = lmfit.Parameters()
+        self._canvas.location.add('x', value=self._canvas.width() / 2, max=self._canvas.width(), min=0.0)
+        self._canvas.location.add('y', value=self._canvas.height() / 2, max=self._canvas.height(), min=0.0)
 
     def showCanvasSize(self):
         self.statusBar().showMessage(f"Canvas Size (Width * Height): {self._canvas.width()}Px X {self._canvas.height()}Px")
 
-    def estimatePos(self, anchors, point):
-        print(anchors, point)
-        if len(anchors) > 1:
-            ranges = [math.dist((point.center().x(), point.center().y()), (a.x(), a.y()))+np.random.normal(self._nodeMeanError, self._nodeErrorStdDeviation) for a in anchors]
-            x = [np.array([(a.x(), a.y()) for a in anchors]), np.array(ranges)]
-            loc_estimate = lmfit.minimize(cost_value, self.location, args=(x,))
-            node_loc_estimate = (round(loc_estimate.params['x'].value), round(loc_estimate.params['y'].value))
-            print(node_loc_estimate)
-            self._distanceErrorLabel.setText(f"Estimated Pos: {str(node_loc_estimate)}")
-            self._estimatedPosLabel.setText(f"Error in position: {round(math.dist(node_loc_estimate, (point.center().x(), point.center().y())), 2)}")
+    def estimatePos(self, node_loc_estimate, point):
+        self._distanceErrorLabel.setText(f"Estimated Pos: {str(node_loc_estimate)}")
+        self._estimatedPosLabel.setText(f"Error in position: {round(math.dist(node_loc_estimate, (point.center().x(), point.center().y())), 2)}")
 
 
 if __name__ == '__main__':
