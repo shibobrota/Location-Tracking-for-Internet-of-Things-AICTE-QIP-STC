@@ -8,8 +8,8 @@ import lmfit
 import numpy as np
 from PyQt5 import QtWidgets, QtCore
 from PyQt5.QtCore import Qt, QRect, QSize, QPoint, pyqtSignal
-from PyQt5.QtGui import QIcon, QPainter, QPen, QPalette, QVector2D, QBrush, QColor, QFont
-from PyQt5.QtWidgets import QApplication, QAction, QSlider, QLabel, QFrame, QLCDNumber
+from PyQt5.QtGui import QIcon, QPainter, QPen, QPalette, QVector2D, QBrush, QColor, QFont, QPixmap
+from PyQt5.QtWidgets import QApplication, QAction, QSlider, QLabel, QFrame, QLCDNumber, QPushButton
 from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout
 from PyQt5.QtWidgets import QMainWindow
 from PyQt5.QtWidgets import QWidget
@@ -61,9 +61,24 @@ class Label(QLabel):
         }
         ''')
         self.setMaximumHeight(50)
-        font = QFont()
-        font.setPointSize(13)
-        self.setFont(font)
+        self.font = QFont()
+        self.font.setPointSize(13)
+        self.setFont(self.font)
+
+    def setPointSize(self, size):
+        self.font.setPointSize(size)
+        self.setFont(self.font)
+
+
+class Button(QPushButton):
+    def __init__(self, *args):
+        super(Button, self).__init__(*args)
+        self.setStyleSheet('''
+            QPushButton {
+                background-color: white;
+                padding: 7px;
+            }
+        ''')
 
 
 class Slider(QSlider):
@@ -113,11 +128,15 @@ class SliderView(QFrame):
         self._font = QFont()
         self._font.setPointSize(13)
         self._minLabel.setFont(self._font)
+        self.resetButton = Button()
+        self.resetButton.setText("Reset")
+        self.resetButton.clicked.connect(self.resetValue)
         self.sliderHorizontalView.addWidget(self._minLabel)
         self.sliderHorizontalView.addWidget(self._slider)
         self._maxLabel = QLabel(str(max))
         self._maxLabel.setFont(self._font)
         self.sliderHorizontalView.addWidget(self._maxLabel)
+        self.sliderHorizontalView.addWidget(self.resetButton)
         self._title = QLabel(title)
         self._title.setMaximumHeight(20)
         self.setFont(self._font)
@@ -131,6 +150,9 @@ class SliderView(QFrame):
     def onValueChanged(self, val):
         self._lcdText.display(str(val).strip(" "))
         self.callback(val)
+
+    def resetValue(self):
+        self._slider.setValue(0.)
 
 
 class Node(QRect):
@@ -179,13 +201,14 @@ class Canvas(QWidget):
         if point is not None:
             for a in anchors:
                 dist = QVector2D(point.center() - a.center()).length()
-                pen = QPen(QColor(255, 255, 0, 50), self.nodeMeanError + 2*self.nodeErrorStdDeviation, QtCore.Qt.SolidLine)
-                if self.nodeMeanError + 2*self.nodeErrorStdDeviation == 0:
+                pen = QPen(QColor(255, 255, 0, 50), 2 * self.nodeErrorStdDeviation, QtCore.Qt.SolidLine)
+                if 2 * self.nodeErrorStdDeviation == 0:
                     pen = QPen(QColor(0, 0, 255, 50), 1, QtCore.Qt.SolidLine)
                 painter.setPen(pen)
                 painter.setBrush(QBrush())
-                rect = QRect(QPoint(a.x() + a.width() // 2 - dist, a.y() + a.height() // 2 - dist),
-                             QSize(2 * dist, 2 * dist))
+                rect = QRect(QPoint(a.x() + a.width() // 2 - (dist + self.nodeMeanError // 2),
+                                    a.y() + a.height() // 2 - (dist + self.nodeMeanError // 2)),
+                             QSize((2 * dist) + self.nodeMeanError, (2 * dist) + self.nodeMeanError))
                 painter.drawEllipse(rect)
                 painter.setPen(QPen(Qt.red, 1, QtCore.Qt.SolidLine))
                 painter.drawLine(a.center(), point.center())
@@ -201,17 +224,29 @@ class Canvas(QWidget):
             print(anchors, point)
             node_loc_estimate = None
             if len(anchors) > 1:
-                ranges = [math.dist((point.center().x(), point.center().y()), (a.x(), a.y())) + a.distError for a in anchors]
-                x = [np.array([(a.x(), a.y()) for a in anchors]), np.array(ranges)]
+                ranges = [math.dist((point.center().x(), point.center().y()), (a.center().x(), a.center().y())) + a.distError for a in
+                          anchors]
+                x = [np.array([(a.center().x(), a.center().y()) for a in anchors]), np.array(ranges)]
                 loc_estimate = lmfit.minimize(cost_value, self.location, args=(x,))
                 node_loc_estimate = (round(loc_estimate.params['x'].value), round(loc_estimate.params['y'].value))
                 print(node_loc_estimate)
-            if self.lastKnownUncertainity != self.nodeMeanError + 2*self.nodeErrorStdDeviation:
-                self.lastKnownUncertainity = self.nodeMeanError + 2*self.nodeErrorStdDeviation
+            if self.lastKnownUncertainity != self.nodeMeanError + 2 * self.nodeErrorStdDeviation:
+                self.lastKnownUncertainity = self.nodeMeanError + 2 * self.nodeErrorStdDeviation
                 for a in anchors:
                     a.distError = np.random.normal(self.nodeMeanError, self.nodeErrorStdDeviation)
             if node_loc_estimate is not None:
-                self.onPosChange(node_loc_estimate, point)
+                painter.setPen(QPen(Qt.lightGray, 1, QtCore.Qt.SolidLine))
+                painter.setBrush(QColor(0, 0, 255, 50))
+                estimatedNode = Node(QPoint(-1, -1), QSize(point.width()+10, point.height()+10), Type.Point)
+                estimatedNode.moveCenter(QPoint(node_loc_estimate[0], node_loc_estimate[1]))
+                painter.drawEllipse(estimatedNode)
+                painter.setPen(QPen(Qt.blue, 1, QtCore.Qt.SolidLine))
+                painter.drawText(estimatedNode.topLeft() + QPoint(-12, -10), f"{node_loc_estimate}")
+                painter.drawText(estimatedNode.topLeft() + QPoint(-17, -25), "Estimated Pos")
+                errorInPos = round(math.dist(node_loc_estimate, (point.center().x(), point.center().y())), 2)
+                self.onPosChange(node_loc_estimate, errorInPos)
+            else:
+                self.onPosChange("--", "--")
 
     def mousePressEvent(self, event):
         for i in range(len(self.nodes)):
@@ -264,7 +299,7 @@ class MainWindow(QMainWindow):
         self._nodeErrorStdDeviation = 0.0
 
         # Set some main window's properties
-        self.setWindowTitle('Location Tracking for Internet of Things')
+        self.setWindowTitle('Location Tracking for Internet of Things (Sense Lab)')
         screenSize = app.primaryScreen().size()
         self.setMinimumSize(int(screenSize.width() * 0.75), int(screenSize.height() * 0.75))
         self._canvas = Canvas(self.estimatePos)
@@ -292,12 +327,18 @@ class MainWindow(QMainWindow):
             widget = self._toolBar.widgetForAction(action)
             widget.setFixedSize(70, 70)
 
-        self._meanSlider = SliderView(self.onMeanValueChanged, 0, 100, "Mean Error (centre)")
-        self._standardDeviationSlider = SliderView(self.onStandardDeviationValueChanged, 0, 50,
+        self._meanSlider = SliderView(self.onMeanValueChanged, -100, 100, "Mean Error (centre)")
+        self._standardDeviationSlider = SliderView(self.onStandardDeviationValueChanged, 0, 100,
                                                    "Standard Deviation (spread or width)")
-
         self._distanceErrorLabel = Label("Estimated Pos: --")
         self._estimatedPosLabel = Label("Error in position: --")
+
+        # Developer Details
+        self._senseLabLogoPixMap = QPixmap("senselab_logo_small.png")
+        self._senseLabLogo = QLabel()
+        self._senseLabLogo.setPixmap(self._senseLabLogoPixMap)
+        self._developerDetails = Label("Developed By: Shibobrota Das (SENSE Lab @iitm)")
+        self._developerDetails.setPointSize(7)
 
         self.addToolBar(Qt.LeftToolBarArea, self._toolBar)
         # Construct Central Widget
@@ -307,12 +348,16 @@ class MainWindow(QMainWindow):
         self._rightLayout = QVBoxLayout()
         self._rightTopLayout = QVBoxLayout()
         self._rightBottomLayout = QVBoxLayout()
+        self._rightMiddleLayout = QVBoxLayout()
         self._rightTopLayout.addWidget(self._meanSlider)
         self._rightTopLayout.addWidget(self._standardDeviationSlider)
         self._rightTopLayout.addWidget(self._distanceErrorLabel)
         self._rightTopLayout.addWidget(self._estimatedPosLabel)
-        self._rightBottomLayout.addWidget(QFrame())
+        self._rightMiddleLayout.addWidget(QFrame())
+        self._rightBottomLayout.addWidget(self._senseLabLogo, alignment=Qt.AlignHCenter)
+        self._rightBottomLayout.addWidget(self._developerDetails)
         self._rightLayout.addLayout(self._rightTopLayout)
+        self._rightLayout.addLayout(self._rightMiddleLayout)
         self._rightLayout.addLayout(self._rightBottomLayout)
         self._leftLayout.addWidget(self._canvas)
         self._centralWidgetLayout.addLayout(self._leftLayout, 7)
@@ -372,25 +417,22 @@ class MainWindow(QMainWindow):
         super().mouseReleaseEvent(event)
 
     def setup(self):
-        # Status Bar
         self.showCanvasSize()
-        self._canvas.location = lmfit.Parameters()
-        self._canvas.location.add('x', value=self._canvas.width() / 2, max=self._canvas.width(), min=0.0)
-        self._canvas.location.add('y', value=self._canvas.height() / 2, max=self._canvas.height(), min=0.0)
 
     def resizeEvent(self, event):
         print(event.size())
         self.showCanvasSize()
+
+    def showCanvasSize(self):
+        self.statusBar().showMessage(f"Canvas: {self._canvas.width()}x{self._canvas.height()} px")
         self._canvas.location = lmfit.Parameters()
         self._canvas.location.add('x', value=self._canvas.width() / 2, max=self._canvas.width(), min=0.0)
         self._canvas.location.add('y', value=self._canvas.height() / 2, max=self._canvas.height(), min=0.0)
 
-    def showCanvasSize(self):
-        self.statusBar().showMessage(f"Canvas Size (Width * Height): {self._canvas.width()}Px X {self._canvas.height()}Px")
-
-    def estimatePos(self, node_loc_estimate, point):
+    def estimatePos(self, node_loc_estimate, error):
         self._distanceErrorLabel.setText(f"Estimated Pos: {str(node_loc_estimate)}")
-        self._estimatedPosLabel.setText(f"Error in position: {round(math.dist(node_loc_estimate, (point.center().x(), point.center().y())), 2)}")
+        self._estimatedPosLabel.setText(
+            f"Error in position: {error}")
 
 
 if __name__ == '__main__':
