@@ -179,7 +179,8 @@ class Canvas(QWidget):
         self.nodeErrorStdDeviation = 0.
         self.onPosChange = callback
         self.location = None
-        self.lastKnownUncertainity = 0.
+        self.lastKnownMean = 0.
+        self.lastKnownStdDeviation = 0.
 
     def paintEvent(self, event):
         super().paintEvent(event)
@@ -230,8 +231,9 @@ class Canvas(QWidget):
                 loc_estimate = lmfit.minimize(cost_value, self.location, args=(x,))
                 node_loc_estimate = (round(loc_estimate.params['x'].value), round(loc_estimate.params['y'].value))
                 print(node_loc_estimate)
-            if self.lastKnownUncertainity != self.nodeMeanError + 2 * self.nodeErrorStdDeviation:
-                self.lastKnownUncertainity = self.nodeMeanError + 2 * self.nodeErrorStdDeviation
+            if self.lastKnownMean != self.nodeMeanError or self.lastKnownStdDeviation != self.nodeErrorStdDeviation:
+                self.lastKnownMean = self.nodeMeanError
+                self.lastKnownStdDeviation = self.nodeErrorStdDeviation
                 for a in anchors:
                     a.distError = np.random.normal(self.nodeMeanError, self.nodeErrorStdDeviation)
             if node_loc_estimate is not None:
