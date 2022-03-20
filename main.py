@@ -198,8 +198,8 @@ class Canvas(QWidget):
             painter.drawEllipse(point)
             painter.setPen(QPen(Qt.black, 1, QtCore.Qt.SolidLine))
             painter.drawText(point.bottomLeft() + QPoint(-17, 20), f"({point.center().x()}, {point.center().y()})")
-
             print(anchors, point)
+            node_loc_estimate = None
             if len(anchors) > 1:
                 ranges = [math.dist((point.center().x(), point.center().y()), (a.x(), a.y())) + a.distError for a in anchors]
                 x = [np.array([(a.x(), a.y()) for a in anchors]), np.array(ranges)]
@@ -210,7 +210,8 @@ class Canvas(QWidget):
                 self.lastKnownUncertainity = self.nodeMeanError + 2*self.nodeErrorStdDeviation
                 for a in anchors:
                     a.distError = np.random.normal(self.nodeMeanError, self.nodeErrorStdDeviation)
-            self.onPosChange(node_loc_estimate, point)
+            if node_loc_estimate is not None:
+                self.onPosChange(node_loc_estimate, point)
 
     def mousePressEvent(self, event):
         for i in range(len(self.nodes)):
